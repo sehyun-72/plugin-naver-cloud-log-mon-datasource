@@ -14,7 +14,7 @@ class LogConnector(BaseConnector):
         super().__init__(*args, **kwargs)
         self.access_key = kwargs['secret_data'].get('ncloud_access_key_id')
         self.secret_key = kwargs['secret_data'].get('ncloud_secret_key')
-        self.page_no = kwargs['page_date'].get('page_no')
+        self.page_num = kwargs['page_data'].get('page_num')
         self.page_size = kwargs['page_data'].get('page_size')
         self.api_key = kwargs['api_key'].get('api_key')
         self.base_url = "https://cloudloganalytics.apigw.ntruss.com/api/{regionCode}-v1/"
@@ -36,7 +36,7 @@ class LogConnector(BaseConnector):
 
         full_url = self.base_url + uri
         if method.upper() == 'GET':
-            response = requests.post(full_url, headers=headers, json=payload)
+            response = requests.get(full_url, headers=headers, json=payload)
         else:
             response = requests.get(full_url, headers=headers)
         if response.status_code == 200:
@@ -46,43 +46,29 @@ class LogConnector(BaseConnector):
             return None
 
 #####
-
     def list_server_group(self):
-        logging_filter = ''
-        log_filters = self.get('filters',[])
-        for log_filter in log_filters:
-            _filter = []
-            resource_type = log_filter.get('resource_type')
-            labels = log_filter.get('labels',[])
-            if resource_type:
-                _filter.append(f'resource_type="{resource_type}"')
-            if labels:
-                for label in labels:
-                    _filter.append(f'{label["key"]}="{label["value"]}"')
-
-            if logging_filter:
-                logging_filter += f' OR ({"AND".join(_filter)}'
-            else:
-                logging_filter += f'({"AND".join(_filter)})'
-
-        if logging_filter:
-            logging_filter += f' AND timestamp>="{start}" AND timestamp<="{end}"'
-        else:
-            logging_filter += f'timestamp>="{start}" AND timestamp<="{end}"'
-
+        log_filters = self.get('filters', [])
         server_group_list = []
-        payload = {
-            "pageNo": self.page_no,
-            "pageSize": self.page_size
-        }
-        method = "GET"
-        uri = "https://cloudloganalytics.apigw.ntruss.com/api/{regionCode}-v1/classic/servers"
-        try:
-            response = self.call_api(method, uri, payload)  # 수정된 call_api 메소드 호출 시 페이로드 전달
-            for group in response['result']:
-                server_group_list.append(group)
-        except Exception as e:
-            _LOGGER.error(f"Exception when calling Cloud Insight API: {e}")
+
+        # 기본 URI
+        base_uri = "https://cloudloganalytics.apigw.ntruss.com/api/{regionCode}-v1/classic/servers"
+
+        for log_filter in log_filters:
+            # 필터별로 URI 생성
+            uri = base_uri + f"?{log_filter}"
+
+            payload = {
+                "pageNo": self.page_num,
+                "pageSize": self.page_size
+            }
+            method = "GET"
+            try:
+                response = self.call_api(method, uri, payload)
+                if 'result' in response:
+                    for group in response['result']:
+                        server_group_list.append(group)
+            except Exception as e:
+                _LOGGER.error(f"Exception when calling Cloud Insight API: {e}")
 
         return server_group_list
 
