@@ -2,8 +2,7 @@ import os
 import json
 import unittest
 from spaceone.core.unittest.runner import RichTestRunner
-
-# 테스트할 클래스 import
+from spaceone.core import utils
 from src.spaceone_company.monitoring.connector.logging.log_connector import LogConnector
 
 # def _get_credentials():
@@ -11,28 +10,17 @@ from src.spaceone_company.monitoring.connector.logging.log_connector import LogC
 #         json_data = json.load(json_file)
 #         return json_data
 class TestLog(unittest.TestCase):
-
+    config = utils.load_yaml_from_file(
+        os.environ.get("SPACEONE_TEST_CONFIG_FILE", "./config.yml")
+    )
+    global_config = config.get("GLOBAL", {})
+    endpoints = global_config.get("ENDPOINTS", {})
+    secrets = global_config.get("SECRETS", {})
     def setUp(self):
-        # 테스트 시작 전 설정
         self.connector = LogConnector(
-            secret_data= {
-                ''
-            },
             page_data={'page_num': 1, 'page_size': 10},
             api_key={'api_key': 'your_api_key'}
         )
-
-    def test_init(self):
-        # init 테스트
-        v_info = self.connector.init({'options': {}})
-        # 결과 검증
-
-    def test_verify(self):
-        # verify 테스트
-        schema = ''
-        options = {}
-        result = self.connector.verify({'schema': schema, 'options': options})
-        # 결과 검증
 
     def test_log_list(self):
         # log_list 테스트
