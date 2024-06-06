@@ -1,124 +1,69 @@
-from spaceone.core import utils
-from src.spaceone_company.monitoring.libs.connector import NaverCloudConnector
-import logging
-import requests
-import time
+import sys
+import os
 import hashlib
-import hmac
-import base64
-from spaceone.core.connector import BaseConnector
+import hmac, json
+import base64, time, requests
 
-_LOGGER = logging.getLogger("cloudforet")
-class LogConnector(BaseConnector):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.access_key = kwargs['secret_data'].get('ncloud_access_key_id')
-        self.secret_key = kwargs['secret_data'].get('ncloud_secret_key')
-        self.page_num = kwargs['page_data'].get('page_num')
-        self.page_size = kwargs['page_data'].get('page_size')
-        self.api_key = kwargs['api_key'].get('api_key')
-        self.base_url = "https://cloudloganalytics.apigw.ntruss.com/api/{regionCode}-v1/"
-    def make_signature(self, method, uri):
+
+class LogConnector:
+    def __init__(self, secret_data):
+        self.base_url = 'https://cloudloganalytics.apigw.ntruss.com'
+        self.secret_data = secret_data
+
+    def make_signature(self, access_key, secret_key, method, uri, timestamp):
+        message = method + " " + uri + "\n" + timestamp + "\n" + access_key
+        message = bytes(message, 'UTF-8')
+        secret_key = bytes(secret_key, 'UTF-8')
+        signingKey = base64.b64encode(hmac.new(secret_key, message, digestmod=hashlib.sha256).digest())
+        return signingKey
+
+    def send_request(self, endpoint):
+        url = f"{self.base_url}{endpoint}"
+        method = 'GET'
         timestamp = str(int(time.time() * 1000))
-        message = f"{method} {uri}\n{timestamp}\n{self.access_key}"
-        signature = base64.b64encode(hmac.new(self.secret_key.encode('utf-8'), message.encode('utf-8'), hashlib.sha256).digest()).decode('utf-8')
-        return signature, timestamp
+        access_key = self.secret_data['ncloud_access_key_id']
+        secret_key = self.secret_data['ncloud_secret_key']
 
-    def call_api(self, method, uri, payload=None):
-        signature, timestamp = self.make_signature(method, uri)
         headers = {
-            "x-ncp-apigw-timestamp": timestamp,
-            "x-ncp-iam-access-key": self.access_key,
-            "x-ncp-apigw-signature-v2": signature,
-            "x-ncp-apigw-api-key": self.api_key,
-            "content-type": "application/json"
+            'x-ncp-apigw-signature-v2': self.make_signature(access_key, secret_key, method, endpoint, timestamp),
+            'x-ncp-apigw-timestamp': timestamp,
+            'x-ncp-iam-access-key': access_key,
+            'Content-Type': 'application/json'
         }
 
-        full_url = self.base_url + uri
-        if method.upper() == 'GET':
-            response = requests.get(full_url, headers=headers, json=payload)
-        else:
-            response = requests.get(full_url, headers=headers)
+        response = requests.get(url, headers=headers)
+
         if response.status_code == 200:
-            return response.json()
+            servers = response.json()
+            print(json.dumps(servers, indent=4))
         else:
-            _LOGGER.error(f"API call failed with status code {response.status_code}: {response.text}")
-            return None
+            print(f"Error: {response.status_code}, {response.text}")
 
-#####
-    def list_server_group(self):
-        log_filters = self.get('filters', [])
-        server_group_list = []
+        return response
 
-        # 기본 URI
-        base_uri = "https://cloudloganalytics.apigw.ntruss.com/api/{regionCode}-v1/classic/servers"
-
-        for log_filter in log_filters:
-            # 필터별로 URI 생성
-            uri = base_uri + f"?{log_filter}"
-
-            payload = {
-                "pageNo": self.page_num,
-                "pageSize": self.page_size
-            }
-            method = "GET"
-            try:
-                response = self.call_api(method, uri, payload)
-                if 'result' in response:
-                    for group in response['result']:
-                        server_group_list.append(group)
-            except Exception as e:
-                _LOGGER.error(f"Exception when calling Cloud Insight API: {e}")
-
-        return server_group_list
-
-    def log_count(self):
-        log_count_list = []
-        payload = {
-
-        }
-        method = "GET"
-        uri = "https://cloudloganalytics.apigw.ntruss.com/api/{regionCode}-v1/logs/count/total"
-        try:
-            response = self.call_api(method, uri, payload)  # 수정된 call_api 메소드 호출 시 페이로드 전달
-            for group in response['result']:
-                log_count_list.append(group)
-        except Exception as e:
-            _LOGGER.error(f"Exception when calling Cloud Insight API: {e}")
-
-        return log_count_list
-
-    def list_bucket(self):
-        bucket_list = []
-        payload = {
-            "pageNo": self.page_no,
-            "pageSize": self.page_size,
-        }
-        method = "GET"
-        uri = "https://cloudloganalytics.apigw.ntruss.com/api/{regionCode}-v1/export/bucketsl"
-        try:
-            response = self.call_api(method, uri, payload)  # 수정된 call_api 메소드 호출 시 페이로드 전달
-            for group in response['result']:
-                bucket_list.append(group)
-        except Exception as e:
-            _LOGGER.error(f"Exception when calling Cloud Insight API: {e}")
-
-        return bucket_list
-
-    def get_usage(self):
-        usage_list = []
-        payload = {
-            "pageNo": self.page_no,
-            "pageSize": self.page_size,
-        }
-        method = "GET"
-        uri = "https://cloudloganalytics.apigw.ntruss.com/api/{regionCode}-v1/capacity"
-        try:
-            response = self.call_api(method, uri, payload)  # 수정된 call_api 메소드 호출 시 페이로드 전달
-            for group in response['']:
-                usage_list.append(group)
-        except Exception as e:
-            _LOGGER.error(f"Exception when calling Cloud Insight API: {e}")
-
-        return usage_list
-
+    def get_Classic_server_list(self, region_code, page_no, page_size):
+        return self.send_request(endpoint= f"/api/{region_code}-v1/vpc/servers?pageNo={page_no}&pageSize={page_size}")
+    def get_CDB_Mysql_list(self, region_code, page_no, page_size):
+        return self.send_request(endpoint=f"/api/{region_code}-v1/classic/servers/mysql?pageNo={page_no}&pageSize={page_size}")
+    def get_CDB_Mssql_list(self, region_code, page_no, page_size):
+        return self.send_request(endpoint=f"/api/{region_code}-v1/classic/servers/mssql?pageNo={page_no}&pageSize={page_size}")
+    def get_Baremetal_server_list(self, region_code, page_no, page_size):
+        return self.send_request(endpoint=f"/api/{region_code}-v1/classic/servers/baremetal?pageNo={page_no}&pageSize={page_size}")
+    def get_vpc_list(self, region_code, page_no, page_size):
+        return self.send_request(endpoint=f"/api/{region_code}-v1/vpc/servers?pageNo={page_no}&pageSize={page_size}")
+    def get_vpc_CDB_Mysql_list(self, region_code, page_no, page_size):
+        return self.send_request(endpoint=f"/api/{region_code}-v1/vpc/servers?pageNo={page_no}&pageSize={page_size}")
+    def get_vpc_CDB_MSSQL_list(self, region_code, page_no, page_size):
+        return self.send_request(endpoint=f"/api/{region_code}-v1/vpc/servers?pageNo={page_no}&pageSize={page_size}")
+    def get_vpc_CDB_MongoDB_list(self, region_code, page_no, page_size):
+        return self.send_request(endpoint=f"/api/{region_code}-v1/vpc/servers?pageNo={page_no}&pageSize={page_size}")
+    def get_vpc_CDB_PostgreSQL_list(self, region_code, page_no, page_size):
+        return self.send_request(endpoint=f"/api/{region_code}-v1/vpc/servers?pageNo={page_no}&pageSize={page_size}")
+    def get_vpc_Baremetal_list(self, region_code, page_no, page_size):
+        return self.send_request(endpoint=f"/api/{region_code}-v1/vpc/servers?pageNo={page_no}&pageSize={page_size}")
+    def get_vpc_SES_list(self, region_code, page_no, page_size):
+        return self.send_request(endpoint=f"/api/{region_code}-v1/vpc/servers?pageNo={page_no}&pageSize={page_size}")
+    def get_vpc_cloud_data_list(self, region_code, page_no, page_size):
+        return self.send_request(endpoint=f"/api/{region_code}-v1/vpc/servers?pageNo={page_no}&pageSize={page_size}")
+    def get_vpc_ncloud_kubernetes_list(self, region_code, page_no, page_size):
+        return self.send_request(endpoint=f"/api/{region_code}-v1/vpc/servers?pageNo={page_no}&pageSize={page_size}")
